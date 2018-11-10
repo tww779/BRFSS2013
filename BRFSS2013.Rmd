@@ -1,0 +1,454 @@
+---
+title: "Exploring the BRFSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+```
+
+### Load data
+
+```{r load-data}
+load("brfss2013.RData")
+
+## Review types of variables available in the BRFSS2013 data set
+brfss2013%>% 
+  select(iyear, dispcode, genhlth, sex, exeroft2, strength, X_age_g, X_race, fruitju1, fruit1, fvbeans, fvgreen, fvorang, vegetab1, exract11) %>% 
+  str()
+
+```
+```{r brfss-preview}
+## Preview data of variables to be used
+brfss2013 %>% 
+  filter(dispcode != "1", 
+         genhlth %in% c("Excellent", "Very good", "good"),
+         !is.na(sex), 
+         !is.na(X_age_g), 
+         !is.na(X_race)) %>%
+  group_by(iyear, dispcode, genhlth, sex, X_age_g, X_race) %>% 
+  summarise(count = n())
+
+```
+```{r minimum-prepare}
+## Create data frame with 11 variables for Question 1
+minimum <- brfss2013 %>%
+  filter(dispcode != "1",
+         genhlth %in% c("Excellent", "Very good", "Good"),
+         !is.na(sex),
+         !is.na(X_age_g),
+         !is.na(X_race),
+         !is.na(exeroft2),
+         !is.na(strength)) %>%
+  group_by(iyear, dispcode, genhlth, sex, exeroft2, strength, X_age_g, X_race) %>%
+  summarise(count = n())
+```
+```{r minimum-frequencyexercise}
+## Create 2 columns indicating whether observation's cardiovascular and strength building activity is a weekly or monthly response
+minimum <- minimum %>%
+  mutate(cardio_freq = ifelse(exeroft2 < 200, "Weekly", "Monthly"))
+
+minimum <- minimum %>%
+  mutate(str_freq = ifelse(strength < 200, "Weekly", "Monthly"))
+
+```
+```{r fiber-prepare}
+## Create data frame with 19 variables for Question 2
+fiber <- brfss2013 %>%
+  filter(dispcode != "1",
+         genhlth %in% c("Excellent", "Very good", "Good"),
+         !is.na(sex),
+         !is.na(X_age_g),
+         !is.na(X_race),
+         !is.na(exeroft2),
+         !is.na(strength),
+         !is.na(fruit1),
+         !is.na(fvbeans),
+         !is.na(fvgreen),
+         !is.na(fvorang),
+         !is.na(vegetab1))%>%
+  group_by(iyear, dispcode, genhlth, sex, exeroft2, strength, X_age_g, X_race, fruit1, fvbeans, fvgreen, fvorang, vegetab1) %>%
+  summarise(count = n())
+
+```
+
+```{r fiber-frequencyexercise}
+## Create 2 columns indicating whether observation's cardiovascular and strength building activity is weekly or monthly response. Limit fiber data frame to only observations with weekly cardiovascular responses.
+fiber <- fiber %>%
+  mutate(cardio_freq = ifelse(exeroft2 < 200, "Weekly", "Monthly"))
+
+fiber <- fiber %>%
+  mutate(str_freq = ifelse(strength < 200, "Weekly", "Monthly"))
+
+fiber <- fiber %>%
+  filter(cardio_freq == 'Weekly')
+```
+```{r fiber-fruitreq}
+## Create 1 column indicating whether observation met weekly fruit consumption.
+fiber <- fiber %>%
+  mutate(weekfruitreq = ifelse(fruit1 >= 207 & fruit1 <= 299, "Met Weekly Fruit Req", "Did Not Meet Weekly Fruit Req"))
+
+```
+```{r fiber-vegreq}
+## Create 1 column indicating whether observation met weekly vegetable consumption. If person's value is between 207 and 299 in any of the 4 vegetable categories, he or she met the weekly vegetable requirement.
+fiber <- fiber %>%
+  mutate(weekvegreq = ifelse(fvbeans >= 207, "Met Weekly Veg Req", ifelse(fvgreen >= 207, "Met Weekly Veg Req", ifelse(fvorang >= 207, "Met Weekly Veg Req", ifelse(vegetab1 >= 207, "Met Weekly Veg Req", "Did Not Meet Veg Req")))))
+                            
+```
+```{r fiber-totalveg}
+## Create 1 column summing the total times vegetables were eaten per week.
+fiber <- fiber %>%
+  filter((fvbeans >= 201 & fvbeans <= 299),
+         (fvgreen >= 201 & fvgreen <= 299),
+         (fvorang >= 201 & fvorang <= 299),
+         (vegetab1 >= 201 & vegetab1 <= 299)) %>%
+  mutate(totalveg = (fvbeans + fvgreen + fvorang + vegetab1)/4)
+
+```
+```{r exercise-overall}
+## Prepare data frame for Question 3
+exercise <- brfss2013 %>%
+  filter(dispcode != "1",
+         genhlth %in% c("Excellent", "Very good", "Good"),
+         !is.na(sex),
+         !is.na(X_age_g),
+         !is.na(X_race),
+         !is.na(exeroft2),
+         !is.na(strength)) %>%
+  group_by(iyear, dispcode, genhlth, sex, exeroft2, strength, X_age_g, X_race, exract11) %>%
+  summarise(n = n())
+```
+
+* * *
+
+## Part 1: Data
+
+**Context**
+The BRFSS study examines non-institutionalized adults over 18 years of age. As the Data User Guide stated, the study expanded to all American states and territories after 2001. In order to identify long-term trends, data scientists need to refer to the Comparability of Data document for recommended methods. Although the BRFSS data set is limited to 2013 and 2014, the study was designed to account for differences in population density, race, residence, and telephone method, and time survey is conducted. 
+
+Some of the BRFSS study's biases can be attributed to the population pool sampled and method. Disproportionate stratified sampling was used to distinguish high and low geographic densities in the United States. This method was selected for cost efficiency. However, the study excludes institutionalized or homeless persons. It is possible variables related to income and health are not accurately represented.
+
+The purpose of this exploratory data analysis is to examine habits of people self-identified with at least good health. The research questions evaluate observations from 2013 and 2014 to identify habits associated with fruit and vegetable consumption, along with types of physical exercise. 
+
+**Findings**
+Question 1: The minimum amount of cardiovascular exercise observed in people to be in at least good overall health is 1 time a week. The minium amount of strength training observed is 0 times a week. 
+
+Question 2: People with at least good health consume at least 1 fruit per week and 3 vegetables per week. 
+
+Question 3: Walking is the most popular form of physical exercise observed in people with at least good overall health.
+
+* * *
+
+## Part 2: Research questions
+
+**Research quesion 1: What is the minimum amount of exercise observed in people to be in at least good overall health?**
+
+**Research quesion 2: How much fruit and vegetable do people with at least good health consume per week?**
+
+**Research quesion 3: What type of physical exercise do people in at least good overall health partake?**
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+**Research quesion 1: What is the minimum amount of exercise observed in people to be in at least good overall health?**
+
+This question is of interest because people have different preferences for the amount of exercise he or she needs on a weekly basis. Despite the differences, if people self-identify as having 'Excellent' health, I am interested to know if the 'Excellent' segment, for example, share an average weekly cardiovascular or strength building program. Is it possible to be in 'Excellent' health but participate in limited cardiovascular activities per week? This question will evaluate 3 variables: sex, age, and race.
+
+```{r minimum-overallcardiosum}
+## Overall mean, standard deviation, and median of cardiovascular activity for each GENHLTH segment of 'Excellent', 'Very Good', 'Good'. Identify the minimum and maximum of each segment.
+minimum %>%
+  filter(!is.na(exeroft2), cardio_freq == "Weekly") %>%
+  group_by(genhlth, cardio_freq) %>%
+  summarise(mean_cardio = mean(exeroft2), sd_cardio = sd(exeroft2), md_cardio = median(exeroft2), min_cardio = min(exeroft2), max_cardio = max(exeroft2), n = n()) 
+
+```
+Participating in weekly cardiovascular exercises is consistent across the 3 GENHLTH segments. On average, people do cardiovascular activities at least 3 times a week. Surprisingly, persons identified as having 'Excellent' health on average do not conduct more cardio than the 'Very good' or 'Good' segments. There is an outlier in the 'Excellent' segment most likely due to an data entry error. The minimum number of times per week a person with at least good health is 1.  
+
+```{r minimum-sexcardiosum}
+## Average number of times per week a person with at least good health does cardio on age
+minimum %>%
+  filter(cardio_freq == "Weekly")
+  ggplot(minimum, aes(x = factor(sex), y = exeroft2)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Exercise Cardio Weekly (Sex)") +
+  labs(x="Sex",y="Number of Times Per Week") 
+```
+
+When segmenting by sex, there is additional granularity. On average, men participate in more sessions per week of cardiovascular activities. The data error value of "2" results in a tail for the "Male" variable. Interestingly, there are some men and women who participate in cardio per week more than the average person. 
+
+```{r minimum-agecardiosum}
+## Average number of times per week a person with at least good health does cardiovascular exercises based on age
+minimum %>%
+  filter(cardio_freq == "Weekly")
+  ggplot(minimum, aes(x = factor(X_age_g), y = exeroft2)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Exercise Cardio Weekly (Age)") +
+  labs(x="Age", y="Number of Times Per Week")
+
+```
+
+There are some men and women across the age groups who participate in cardiovascular activities more than the average person per week. The boxplot is interesting because I expected the younger cohorts (ages 18 to 34) to do more cardio than the older groups. Ages 35 to 54 slightly do more cardio than the 55+ groups. It would be helpful to identify factors affecting the sudden increase in weekly cardio sessions between the 25 to 34 and 35 to 44 segments.
+```{r minimum-racecardiosum}
+## Average number of times per week a person with at least good health does cardiovascular exercises based on race
+minimum %>%
+  filter(cardio_freq == "Weekly")
+  ggplot(minimum, aes(x = factor(X_race), y = exeroft2)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Exercise Cardio Weekly (Race)") +
+  labs(x="Race", y="Number of Times Per Week") +
+  scale_x_discrete(labels = abbreviate)
+
+```
+
+Persons identifying as white, non-Hispanic participate in weekly cardio more significantly often than other races. Native Hawaiians and Pacific Islanders on average do the least amount of cardio per week. Further research can investigate what factors such as lifestyle and income enable persons identified as white, non-Hispanic to do more cardio per week. 
+
+```{r minimum-overallstrengthsum}
+## Overall mean, standard deviation, and median of strength activity for GENHLTH segments of 'Excellent', 'Very Good', 'Good'. Identify the minimum and maximum of each segment.
+minimum %>%
+  filter(!is.na(strength), str_freq == "Weekly") %>%
+  group_by(genhlth, str_freq) %>%
+  summarise(mean_str = mean(strength), sd_str = sd(strength), md_str = median(strength), min_str = min(strength), max_str = max(strength), n = n()) 
+```
+
+On average, persons identifying as in "Excellent" health participate in more strength training per week than the "Very good" and "Good" segments. It would be interesting to determine if having a balanced program of cardiovascular and strength training influences in one's perception of having "Excellent" health. It is also possible to be in at least good health by doing no strength training per week as indicated by the "0" minimum value. If a person was selected from the median in each GENHLTH segment, that person will most likely participate in at least 2 sessions of strength training per week. 
+
+```{r minimum-strsexsum}
+## Average number of times per week a person with at least good health does strength exercises based on sex
+minimum %>%
+  filter(str_freq == "Weekly")
+  ggplot(minimum, aes(x = factor(sex), y = strength)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Exercise Strength Weekly (Sex)") +
+  labs(x="Sex",y="Number of Times Per Week")
+```
+
+The gap between the average of strength training per week is significantly smaller than observed cardiovascular activities. Men barely do more strength training per week than women. 
+```{r mininum-stragesum}
+## Average number of times per week a person with at least good health does strength exercises based on age
+minimum %>%
+  filter(str_freq == "Weekly")
+  ggplot(minimum, aes(x = factor(X_age_g), y = strength)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Exercise Strength Weekly (Age)") +
+  labs(x="Age",y="Number of Times Per Week")
+```
+
+Unlike cardiovascular activities, strength training per week is underestimated across all age groups. 
+```{r minimum-strracesum}
+## Average number of times per week a person with at least good health does strength exercises based on race
+minimum %>%
+  filter(str_freq == "Weekly")
+  ggplot(minimum, aes(x = factor(X_race), y = strength)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Exercise Strength Weekly (Race)") +
+  labs(x="Race",y="Number of Times Per Week") +
+  scale_x_discrete(labels = abbreviate)
+```
+
+Strength training per week is more dire than cardiovascular reportings for specific races. American Indians, Native Hawaiians, Pacific Islanders, and "Other"(s) generally do not participate in strength training. Again, white, non-Hispanic persons do more strength training than other races. 
+
+**Research quesion 2: How much fruit and vegetable do people with at least good health consume per week?**
+This question is of interest because nutrition, combined with exercise, influences one's health. Nutritional education is important because today's advertisement of certain foods is dependent on one's lack of food knowledge. For example, greens are important to one's diet but excess consumption could imbalance the body. There is an assumption that a high volume of fruit and vegetable consumption is always positive, but is it? Do people identifying with "Excellent" health consume more fruits and vegetables weekly than the "Very good" and "Good" segments? This question will evaluate 3 variables: sex, age, and race.
+
+
+```{r fiber-overallfruitsum}
+## Overall mean, standard deviation, and median of weekly fruit consumption for GENHLTH segments of 'Excellent', 'Very Good', 'Good'.
+fiber %>%
+  filter(!is.na(fruit1), (fruit1 >= 200 & fruit1 <= 299)) %>%
+  group_by(genhlth) %>%
+  summarise(mean_fruit = mean(fruit1), sd_fruit = sd(fruit1), md_fruit = median(fruit1), min_fruit = min(fruit1), 
+  max_fruit = max(fruit1), n = n()) 
+```
+
+The minimum number of times per week a person across all GENHLTH segments eats fruit is 1.  A person will eat an average of fruit 3 times a week. Not surprisingly, there are some outliers in each GENHLTH segment where a person consumes more fruit (max range) than the average person.
+
+```{r fiber-overallvegsum}
+## Overall mean, standard deviation, and median of vegetable consumption for GENHLTH segments of 'Excellent', 'Very Good', and 'Good'
+fiber %>%
+  filter(!is.na(weekvegreq)) %>%
+  group_by(genhlth) %>%
+  summarise(mean_veg = mean(totalveg), sd_veg = sd(totalveg), md_veg = median(totalveg), n = n()) 
+
+```
+
+For this analysis, it did not matter what type of vegetable a person reported to eat. Instead, it was important to know if a person ate at least 1 "qualifying" vegetable during the week. There is not a significant difference among the GENHLTH segments in the average number of vegetables eaten per week. A person eats vegetables at least 3 times a week. 
+
+```{r fiber-overallfruitboxplot}
+fiber %>%
+  filter(!is.na(fruit1),
+         cardio_freq == "Weekly",
+         (fruit1 <= 200 & fruit1 >= 299))
+ggplot(data = fiber, aes(x = genhlth, y = fruit1)) +
+  geom_boxplot () +
+  ggtitle("Persons with at Least Good Health Weekly Fruit Consumption (Overall)") +
+  labs(x="Identified Health",y="Number of Times Per Week") 
+```
+
+Apparently a person can be in at least good health and not eat any fruits per week. Interestingly, persons reporting "Good" health ate more fruit per week than the 2 other segments. Although fruits are not artifically created, it does not mean excess consumption is good because they are sugary. Sugar has been linked to obesity. 
+
+```{r fiber-overallvegboxplot}
+fiber %>%
+  filter(cardio_freq == "Weekly",
+         (totalveg >= 200 & totalveg <= 299))
+ggplot(data = fiber, aes(x = genhlth, y = totalveg)) +
+  geom_violin () +
+  ggtitle("Persons with at Least Good Health Weekly Vegetable Consumption (Overall)") +
+  labs(x="Identified Health",y="Number of Times Per Week")
+```
+
+Originally, I created a boxplot but the results were hard to distinguish from each other in a single vertical line. Instead, I used geom_violin to illustrate the density and outliers. The outliers are represented by the vertical lines above each "violin". Across the GENHLTH segments, the average person consumed a vegetable at least 3 times per week. 
+
+```{r fiber-sexfruit}
+## Average number of times per week a person with at least good health and exercises consumes fruit weekly based on sex
+fiber %>%
+  filter(cardio_freq == "Weekly",
+         !is.na(fruit1),
+         (fruit1 <= 200 & fruit1 >= 299))
+  ggplot(data = fiber, aes(x = sex, y = fruit1)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Weekly Fruit Consumption (Sex)") +
+  labs(x="Sex",y="Number of Times Per Week") 
+
+```
+
+I expected weekly fruit consumption to be similar across sexes but the mean is significantly higher for men who are in at least good health and participate in cardiovascular activities per week. Further research is needed to determine if women on average are consuming fruits below the recommended suggestions per week. 
+
+```{r fiber-agefruit}
+## Average number of times per week a person with at least good health and exercises consumes fruit weekly based on age
+fiber %>%
+  filter(cardio_freq == "Weekly",
+         !is.na(fruit1),
+         (fruit1 <= 200 & fruit1 >= 299))
+  ggplot(data = fiber, aes(x = X_age_g, y = fruit1)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Weekly Fruit Consumption (Age)") +
+  labs(x="Sex",y="Number of Times Per Week") 
+```
+
+Although the younger cohorts (ages 18 to 34) participate in cardio activities per week less than their older counterparts, the former consumes on average more fruits weekly. If the younger cohorts participated in more weekly cardio and their fruit consumption was also high, it's possible fruit is used for fueling. Another possibility, though more research is needed, is fruit consumption for the older age groups is lower due to onset of diabetes. 
+
+```{r fiber-racefruit}
+## Average number of times per week a person with at least good health and exercises consumes fruit weekly based on race
+fiber %>%
+  filter(cardio_freq == "Weekly",
+         !is.na(fruit1))
+  ggplot(data = fiber, aes(x = X_race, y = (fruit1 <= 201 & fruit1 >= 299))) +
+  geom_jitter() +
+  ggtitle("Persons with at Least Good Health Weekly Fruit Consumption (Race)") +
+  labs(x="Sex",y="Weekly Fruit Consumption") +
+  scale_x_discrete(labels = abbreviate)
+```
+
+This plot is interesting because it identifies any person who consumes at least 1 fruit per week, breaking consumption by race. The majority of white, non-Hispanic respondents eat at least 1 fruit weekly, followed by Hispanics and blacks, non-Hispanic. 
+
+```{r fiber-sexveg}
+## Average number of times per week a person with at least good health and exercises consumes vegetables weekly based on sex
+fiber %>%
+  filter(cardio_freq == "Weekly",
+         (totalveg >= 200 & totalveg <= 299))
+  ggplot(data = fiber, aes(x = sex, y = totalveg)) +
+  geom_boxplot() +
+  ggtitle("Persons with at Least Good Health Weekly Vegetable Consumption (Sex)") +
+  labs(x="Sex",y="Number of Times Per Week") 
+```
+
+Unlike fruit consumption, males and females on average consume at least 3 vegetables per week. There are more extreme observations of vegetable consumption per week among females.
+
+```{r fiber-ageveg}
+## Average number of times per week a person with at least good health and exercises consumes vegetables weekly based on age
+fiber %>%
+  filter(cardio_freq == "Weekly",
+         (totalveg >= 200 & totalveg <= 299))
+  ggplot(data = fiber, aes(x = X_age_g, y = totalveg)) +
+  geom_jitter() +
+  ggtitle("Persons with at Least Good Health Weekly Vegetable Consumption (Age)") +
+  labs(x="Sex",y="Number of Times Per Week") 
+```
+
+Although the difference is small, number of vegetables consumed per week increases with age.
+
+```{r fiber-raceveg}
+## Average number of times per week a person with at least good health and exercises consumes vegetables weekly based on race
+fiber %>%
+  filter(cardio_freq == "Weekly",
+         (totalveg >= 200 & totalveg <= 899))
+  ggplot(data = fiber, aes(x = X_race, y = totalveg)) +
+  geom_jitter() +
+  ggtitle("Persons with at Least Good Health Weekly Vegetable Consumption (Race)") +
+  labs(x="Sex",y="Number of Times Per Week") +
+  scale_x_discrete(labels = abbreviate)
+```
+
+This graph is similar to the fruit consumption visual by race. However, the scattered dots above the white, non-Hispanic variable indicate more observations where vegetable consumption is higher on a weekly basis for select individuals. 
+
+**Research quesion 3: What are the top 10 types of physical exercise people in at least good overall health partake?**
+
+This question is of interest because there are multiple ways to be active and maintain good health. Are there particular activities where men do more than women, or is the road to exercising identical across sexes? This question will evaluate sex.
+
+```{r exercise-frequencyactivity}
+## Frequency of counts for each activity listed
+
+exercisesummary <- exercise %>% 
+  filter(!is.na(exract11)) %>%
+  group_by(exract11) %>% 
+  summarise(total = sum(n))
+
+exercisesummary <- exercisesummary %>%
+  filter(total >= 3100) 
+
+exercisesummary
+
+max.exercise <- c(83276, 17378, 12069, 8754, 8094, 6288, 5847, 4550, 4410, 3185)
+
+barplot(max.exercise,main="People with at least Good Health and Reported Physical Activities",ylab="Number of Responses", names = c("Walking", "Running", "Gardening", "Other", "Weighlifting", "Bicycling", "Aerobics", "Bike Machine", "Elliptical", "Cali"), las=2)
+```
+
+Regardless of sex, walking is a very popular form of physical activity followed by running. 
+
+```{r exercise-menover1700}
+exercisemensummary <- exercise %>% 
+  filter(!is.na(exract11), sex == "Male") %>%
+  group_by(exract11) %>% 
+  summarise(total = sum(n))
+
+exercisemensummary <- exercisemensummary %>%
+  filter(total >= 1700)
+
+exercisemensummary
+
+max.menexercise <- c(28648, 9550, 5978, 4114, 3650, 3600, 2449, 1965, 1763, 1722)
+
+barplot(max.exercise,main="Men with at least Good Health and Reported Physical Activities",ylab="Number of Responses", names = c("Walking", "Running", "weightlifting", "Bicycling", "Gardening", "Other", "Golf", "Bike Mach", "Elliptical", "Cali"), las=2)
+
+```
+
+When separated by the male sex, walking remains the most popular physical activity followed by running. However, weighlifting and bicyling are more popular than gardening. Interestingly, golf becomes a distinct value when male sex is isolated.
+
+```{r exercise-womenover1700}
+exercisewomensum <- exercise %>% 
+  filter(!is.na(exract11), sex == "Female") %>%
+  group_by(exract11) %>% 
+  summarise(total = sum(n))
+
+exercisewomensum <- exercisewomensum %>%
+  filter(total >= 1700)
+
+exercisewomensum
+
+max.menexercise <- c(54628, 8419, 7828, 5154, 4839, 2647, 2585, 2174, 2116, 1768)
+
+barplot(max.exercise,main="Women with at least Good Health and Reported Physical Activities",ylab="Number of Responses", names = c("Walking", "Gardening", "Running", "Other", "Aerobics", "Elliptical", "Bike Mach", "Bicycling", "Weightlifting", "Yoga"), las=2)
+
+````
+
+Similar to men, walking is the most popular followed by gardening. Unlike men, more women reported participating in aerobics and yoga. 
